@@ -1,0 +1,7 @@
+runpod
+torch
+accelerate
+transformers
+safetensors
+pillow
+git+https://github.com/huggingface/diffusers.git
