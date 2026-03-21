@@ -8,7 +8,10 @@ MODEL_ID = os.environ.get("MODEL_ID", "/runpod-volume/models/FLUX.2-klein-9B")
 DTYPE = torch.bfloat16
 DEVICE = "cuda"
 
-pipe = None
+pipe = FluxPipeline.from_pretrained(
+    "black-forest-labs/FLUX.2-klein-9B", 
+    torch_dtype=torch.bfloat16 
+)
 
 def pil_to_b64_png(img: Image.Image) -> str:
     buf = io.BytesIO()
