@@ -1,72 +1,63 @@
-import os, io, base64
-import torch
+import os, io, base64, torch
 from PIL import Image
 import runpod
-from diffusers import Flux2KleinPipeline
+from diffusers import Flux2KleinPipeline # Используй тот класс, который реально в библиотеке
 
 MODEL_ID = os.environ.get("MODEL_ID", "/runpod-volume/models/FLUX.2-klein-9B")
 DTYPE = torch.bfloat16
 DEVICE = "cuda"
 
-pipe = FluxPipeline.from_pretrained(
-    "black-forest-labs/FLUX.2-klein-9B", 
-    torch_dtype=torch.bfloat16 
-)
-pipe.enable_xformers_memory_efficient_attention() 
-
-def pil_to_b64_png(img: Image.Image) -> str:
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return base64.b64encode(buf.getvalue()).decode("utf-8")
+# Глобальная переменная для пайплайна
+pipe = None
 
 def load_pipe_once():
     global pipe
     if pipe is not None:
         return
 
-    print("Loading model from:", MODEL_ID)
-
+    print(f"--- Loading model to A40 VRAM: {MODEL_ID} ---")
+    
+    # Загружаем сразу в нужной точности
     pipe = Flux2KleinPipeline.from_pretrained(
         MODEL_ID,
         torch_dtype=DTYPE,
         local_files_only=True
     )
-
-    pipe.enable_model_cpu_offload()
+    
+    # ПЕРЕНОСИМ ВСЁ В GPU (На A40 места полно!)
+    pipe.to(DEVICE)
+    
+    # Включаем ускорение внимания (если xformers установлены в контейнере)
+    try:
+        pipe.enable_xformers_memory_efficient_attention()
+    except:
+        pass
 
 def handler(event):
     load_pipe_once()
 
     inp = event["input"]
-    prompt = inp["prompt"]
+    # Для Klein/Schnell жестко ставим guidance_scale 0 или 1, если юзер не понимает
+    # Иначе время генерации удвоится впустую
+    gs = float(inp.get("guidance_scale", 1.0))
+    steps = int(inp.get("num_inference_steps", 4))
 
-    height = int(inp.get("height", 1024))
-    width = int(inp.get("width", 1024))
-    guidance_scale = float(inp.get("guidance_scale", 1.0))
-    num_inference_steps = int(inp.get("num_inference_steps", 4))
-    seed = int(inp.get("seed", 0))
+    # Генерация
+    with torch.inference_mode(): # Отключаем градиенты для скорости
+        image = pipe(
+            prompt=inp["prompt"],
+            height=int(inp.get("height", 1024)),
+            width=int(inp.get("width", 1024)),
+            guidance_scale=gs,
+            num_inference_steps=steps,
+            generator=torch.Generator(device=DEVICE).manual_seed(int(inp.get("seed", 0)))
+        ).images[0]
 
-    generator = torch.Generator(device=DEVICE).manual_seed(seed)
+    # Конвертация в b64
+    buf = io.BytesIO()
+    image.save(buf, format="PNG")
+    img_str = base64.b64encode(buf.getvalue()).decode("utf-8")
 
-    image = pipe(
-        prompt=prompt,
-        height=height,
-        width=width,
-        guidance_scale=guidance_scale,
-        num_inference_steps=num_inference_steps,
-        generator=generator
-    ).images[0]
-
-    return {
-        "image_b64": pil_to_b64_png(image),
-        "meta": {
-            "model": MODEL_ID,
-            "seed": seed,
-            "width": width,
-            "height": height,
-            "steps": num_inference_steps,
-            "guidance_scale": guidance_scale,
-        }
-    }
+    return {"image_b64": img_str}
 
 runpod.serverless.start({"handler": handler})
