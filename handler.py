@@ -4,7 +4,7 @@ from PIL import Image
 import runpod
 from diffusers import Flux2KleinPipeline
 
-MODEL_ID = os.environ.get("MODEL_ID", "black-forest-labs/FLUX.2-klein-9B")
+MODEL_ID = os.environ.get("MODEL_ID", "/runpod-volume/models/FLUX.2-klein-9B")
 DTYPE = torch.bfloat16
 DEVICE = "cuda"
 
@@ -20,16 +20,14 @@ def load_pipe_once():
     if pipe is not None:
         return
 
-    # Если хочешь хранить модель на network volume:
-    # - заранее скачай её туда (или пусть HF кэширует в volume через HF_HOME)
-    # - и укажи MODEL_ID как локальный путь.
-    #
-    # Например:
-    #   export MODEL_ID=/runpod-volume/models/FLUX.2-klein-9B
-    #
-    pipe = Flux2KleinPipeline.from_pretrained(MODEL_ID, torch_dtype=DTYPE)
+    print("Loading model from:", MODEL_ID)
 
-    # как в примере HF: экономия VRAM, полезно на 24-48GB
+    pipe = Flux2KleinPipeline.from_pretrained(
+        MODEL_ID,
+        torch_dtype=DTYPE,
+        local_files_only=True
+    )
+
     pipe.enable_model_cpu_offload()
 
 def handler(event):
