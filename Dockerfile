@@ -1,4 +1,4 @@
-FROM runpod/worker-comfyui:<version>-base
+FROM runpod/worker-comfyui:latest-base
 
 WORKDIR /app/ComfyUI/custom_nodes
 
