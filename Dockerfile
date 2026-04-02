@@ -43,12 +43,14 @@ RUN git clone --depth 1 --branch master https://github.com/comfyanonymous/ComfyU
 # RunPod SDK
 RUN pip install --no-cache-dir runpod==1.1.0
 
+RUN mkdir -p /comfyui/custom_nodes && cd /comfyui/custom_nodes \
+    && git clone https://github.com/remingtonspaz/ComfyUI-ReferenceChain.git
 # Код приложения
 WORKDIR /app
 COPY handler.py config.yaml ./
 
 ENV COMFYUI_PATH=/comfyui
-ENV MODELS_BASE=/runpod-volume
+RUN echo "runpod:\n    base_path: /runpod-volume/models\n    checkpoints: checkpoints/\n    clip: clip/\n    vae: vae/\n    unet: unet/\n    loras: loras/" > /comfyui/extra_model_paths.yaml
 ENV PYTORCH_CUDA_ALLOC_CONF=expandable_segments=True
 
 CMD ["python", "handler.py"]
