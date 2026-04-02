@@ -64,24 +64,16 @@ def extract_images(result: Dict) -> List[str]:
     images = []
     outputs = result.get("outputs", {})
     
-    # Ищем нашу ноду 31 (или любой другой ID, где SaveImage64)
     for node_id, node_data in outputs.items():
-        # Нода возвращает (results, base64_strings)
-        # В API это выглядит как массив, где base64_strings — это второй объект
-        
-        # 1. Проверяем, есть ли там список строк (это наш base64)
-        if isinstance(node_data, list):
-            for item in node_data:
-                # Если элемент — список строк, и первая строка похожа на base64
-                if isinstance(item, list) and len(item) > 0 and isinstance(item[0], str):
-                    if len(item[0]) > 100: # Защита от коротких строк-имен
-                        images.extend(item)
-                        print(f"[HANDLER] Extracted {len(item)} images from Node {node_id}")
-        
-        # 2. На всякий случай проверяем ключ 'base64', если ComfyUI решит его так назвать
-        elif isinstance(node_data, dict) and "base64" in node_data:
-            images.extend(node_data["base64"])
-
+        # Твоя нода SaveImage64 возвращает список: [ [файлы], [base64_строки] ]
+        if isinstance(node_data, list) and len(node_data) > 1:
+            base64_list = node_data[1] # Берем второй элемент (индекс 1)
+            if isinstance(base64_list, list):
+                for item in base64_list:
+                    if isinstance(item, str) and len(item) > 100:
+                        images.append(item)
+                        print(f"[HANDLER] Found base64 image in Node {node_id}")
+    
     return images
 
 
