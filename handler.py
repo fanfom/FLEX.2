@@ -164,8 +164,6 @@ def prepare_workflow(workflow: Dict, run_dir: Path) -> Dict:
                 saved_path = save_base64_image(image_value, run_dir / "input", f"node_{node_id}")
                 inputs["image"] = saved_path
         
-        # БЛОК С CheckpointLoader / VAELoader / CLIPLoader НУЖНО УДАЛИТЬ. 
-        # Пусть имена остаются просто именами (напр. "flux1.safetensors")
         
         prepared[node_id] = {
             "class_type": node_class,
