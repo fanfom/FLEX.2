@@ -1,71 +1,67 @@
-# Stage 1: Build PyTorch wheels
-FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04 AS builder
+# ============================================================
+# Stage 1: Runtime — минимальный образ
+# ============================================================
 
-ARG DEBIAN_FRONTEND=noninteractive
-ARG PIP_PREFER_BINARY=1
-ARG PYTHON_VERSION=3.10
-
-# Install build deps
-RUN apt-get update && apt-get install -y \
-    python3.10 python3.10-venv python3-pip \
-    git wget curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# Build minimal PyTorch (optional - use wheels instead)
-# This stage is for building custom ops if needed
-
-FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04 AS runtime
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
-ENV PIP_PREFER_BINARY=1
 ENV PYTHONUNBUFFERED=1
-ENV PYTHON_VERSION=3.10
 
-# Minimal deps
+# Ставим Python 3.10 и зависимости
 RUN apt-get update && apt-get install -y \
-    python3.10 python3-pip \
-    libgl1 libglib2.0-0 libsm6 libxext6 libxrender1 \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get autoremove -y
+    software-properties-common \
+    && add-apt-repository -y ppa:deadsnakes/ppa \
+    && apt-get update \
+    && apt-get install -y \
+    python3.10 \
+    python3.10-venv \
+    python3.10-dev \
+    python3-pip \
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender1 \
+    && rm -rf /var/lib/apt/lists/*
 
-# Create venv
-RUN python3.10 -m venv /opt/venv
-ENV PATH="/opt/venv/bin:${PATH}"
+# Создаём symlink для удобства
+RUN ln -sf /usr/bin/python3.10 /usr/bin/python
 
-# Install PyTorch from wheel (smaller than pip install)
+# Виртуальное окружение
+RUN /usr/bin/python3.10 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# PyTorch + torchvision
 RUN pip install --no-cache-dir \
-    torch==2.3.0 \
-    torchvision==0.18.0 \
+    torch==2.3.1 \
+    torchvision==0.18.1 \
     --index-url https://download.pytorch.org/whl/cu121
 
-# Install inference deps
+# Pillow, aiohttp
 RUN pip install --no-cache-dir \
-    pillow numpy \
-    safetensors einops \
-    transformers accelerate sentencepiece protobuf peft
+    pillow==10.3.0 \
+    aiohttp==3.9.5
 
-# Install ComfyUI core only (not full install)
-RUN git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git /comfyui \
+# ComfyUI — только core
+RUN git clone --depth 1 --branch master https://github.com/comfyanonymous/ComfyUI.git /comfyui \
     && cd /comfyui \
     && pip install --no-cache-dir -r requirements.txt \
     && pip install --no-cache-dir .
 
-# Copy app code
+# RunPod SDK
+RUN pip install --no-cache-dir runpod==1.1.0
+
+# ============================================================
+# Application
+# ============================================================
+
 WORKDIR /app
-COPY handler.py requirements.txt config.yaml ./
-COPY src/ ./src/
+COPY handler.py config.yaml ./
 
-# Install runtime deps only
-RUN pip install --no-cache-dir -r requirements.txt \
-    runpod websockets aiohttp
-
-# Environment
-ENV PYTHONPATH="/app:${PYTHONPATH}"
+# Переменные окружения
 ENV COMFYUI_PATH=/comfyui
+ENV MODELS_BASE=/runpod-volume
 ENV PYTORCH_CUDA_ALLOC_CONF=expandable_segments=True
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD python -c "import torch; print(torch.cuda.is_available())" || exit 1
-
+# Старт
 CMD ["python", "handler.py"]
