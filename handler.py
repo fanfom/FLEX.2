@@ -174,37 +174,27 @@ def prepare_workflow(workflow: Dict, run_dir: Path) -> Dict:
 
 
 def extract_images_from_result(result: Dict) -> List[str]:
-    """Извлечь изображения из результата выполнения"""
     images = []
-    
+    # Сначала пробуем по официальному пути из истории
     outputs = result.get("outputs", {})
-    
     for node_id, node_data in outputs.items():
-        # Ищем изображения в выходных данных
-        if isinstance(node_data, dict):
-            # PreviewImage, SaveImage, etc.
-            if "images" in node_data:
-                for img in node_data["images"]:
-                    filepath = Path(COMFYUI_PATH) / "output"
-                    if img.get("subfolder"):
-                        filepath = filepath / img["subfolder"]
-                    filepath = filepath / img["filename"]
-                    
-                    if filepath.exists():
-                        images.append(load_image_as_base64(filepath))
-                        print(f"[OUTPUT] {img['filename']} ({len(images)} images total)")
-            
-            # alternativa: latent samples
-            elif "gifs" in node_data:
-                for gif in node_data["gifs"]:
-                    filepath = Path(COMFYUI_PATH) / "output"
-                    if gif.get("subfolder"):
-                        filepath = filepath / gif["subfolder"]
-                    filepath = filepath / gif["filename"]
-                    
-                    if filepath.exists():
-                        images.append(load_image_as_base64(filepath))
-    
+        if "images" in node_data:
+            for img in node_data["images"]:
+                # Пробуем найти файл
+                base_path = Path(COMFYUI_PATH) / "output"
+                filepath = base_path / img["filename"]
+                if filepath.exists():
+                    images.append(load_image_as_base64(filepath))
+
+    # ЗАПАСНОЙ ВАРИАНТ: Если из истории ничего не выцепили, берем последние файлы из output
+    if not images:
+        output_path = Path(COMFYUI_PATH) / "output"
+        # Берем файлы созданные в последние 2 минуты
+        recent_files = sorted(output_path.glob("*.png"), key=os.path.getmtime, reverse=True)
+        if recent_files:
+            images.append(load_image_as_base64(recent_files[0]))
+            print(f"[OUTPUT] Found file via fallback: {recent_files[0].name}")
+
     return images
 
 
