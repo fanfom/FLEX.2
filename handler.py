@@ -15,7 +15,7 @@ import subprocess
 import base64
 from pathlib import Path
 from typing import Dict, Any, List, Optional
-
+import aiohttp
 # ============================================================
 # Конфигурация
 # ============================================================
@@ -84,7 +84,7 @@ class ComfyUIClient:
     
     async def _post(self, endpoint: str, data: Any = None, json_data: Dict = None) -> Dict:
         """POST запрос к ComfyUI"""
-        import aiohttp
+        
         
         url = f"{COMFY_URL}{endpoint}"
         
@@ -97,7 +97,7 @@ class ComfyUIClient:
     
     async def _get(self, endpoint: str) -> Any:
         """GET запрос к ComfyUI"""
-        import aiohttp
+        
         
         url = f"{COMFY_URL}{endpoint}"
         
@@ -219,7 +219,6 @@ async def start_comfyui_server() -> bool:
     """Запустить ComfyUI сервер в фоне"""
     global _comfy_process
     
-    import aiohttp
     
     # Проверяем, не запущен ли уже
     try:
