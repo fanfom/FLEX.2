@@ -35,11 +35,10 @@ RUN pip install --no-cache-dir \
     pillow==10.3.0 \
     aiohttp==3.9.5
 
-# ComfyUI
+# ComfyUI — только requirements, без pip install .
 RUN git clone --depth 1 --branch master https://github.com/comfyanonymous/ComfyUI.git /comfyui \
     && cd /comfyui \
-    && pip install --no-cache-dir -r requirements.txt \
-    && pip install --no-cache-dir .
+    && pip install --no-cache-dir -r requirements.txt
 
 # RunPod SDK
 RUN pip install --no-cache-dir runpod==1.1.0
