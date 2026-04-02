@@ -1,10 +1,12 @@
-FROM nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 
 RUN apt-get update && apt-get install -y \
     software-properties-common \
+    git \
+    curl \
     && add-apt-repository -y ppa:deadsnakes/ppa \
     && apt-get update \
     && apt-get install -y \
@@ -46,7 +48,6 @@ RUN pip install --no-cache-dir runpod==1.1.0
 WORKDIR /app
 COPY handler.py config.yaml ./
 
-# Переменные — модели на /runpod-volume
 ENV COMFYUI_PATH=/comfyui
 ENV MODELS_BASE=/runpod-volume
 ENV PYTORCH_CUDA_ALLOC_CONF=expandable_segments=True
