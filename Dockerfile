@@ -56,6 +56,6 @@ COPY handler.py config.yaml ./
 
 ENV COMFYUI_PATH=/comfyui
 RUN echo "runpod:\n    base_path: /runpod-volume/models\n    checkpoints: checkpoints/\n    clip: clip/\n    vae: vae/\n    unet: unet/\n    loras: loras/" > /comfyui/extra_model_paths.yaml
-ENV PYTORCH_CUDA_ALLOC_CONF=expandable_segments=True
+
 
 CMD ["python", "handler.py"]
