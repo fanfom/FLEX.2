@@ -1,360 +1,75 @@
-#!/usr/bin/env python3
-"""
-RunPod Serverless Handler for ComfyUI
-
-Tavern отправляет workflow JSON → мы выполняем → возвращаем base64 изображения
-"""
-
 import os
-import sys
-import json
 import uuid
 import asyncio
-import shutil
-import subprocess
-import base64
-from pathlib import Path
-from typing import Dict, Any, List, Optional
 import aiohttp
-# ============================================================
-# Конфигурация
-# ============================================================
+import runpod
+from typing import Dict, Any, List
 
-MODELS_BASE = os.environ.get("MODELS_BASE", "/runpod-volume")
 COMFYUI_PATH = os.environ.get("COMFYUI_PATH", "/comfyui")
-TEMP_DIR = Path("/tmp/comfy_runs")
+COMFY_URL = "http://127.0.0.1:8188"
 
-COMFY_HOST = "127.0.0.1"
-COMFY_PORT = 8188
-COMFY_URL = f"http://{COMFY_HOST}:{COMFY_PORT}"
-
-# Добавляем ComfyUI в path для импортов
-sys.path.insert(0, COMFYUI_PATH)
-
-
-# ============================================================
-# Base64 утилиты
-# ============================================================
-
-def decode_base64_image(b64_string: str) -> bytes:
-    """Декодировать base64 в bytes. Поддерживает data: URL."""
-    if "," in b64_string:
-        b64_string = b64_string.split(",", 1)[1]
-    return base64.b64decode(b64_string)
-
-
-def encode_image_to_base64(image_bytes: bytes) -> str:
-    """Закодировать bytes в base64 строку"""
-    return base64.b64encode(image_bytes).decode("utf-8")
-
-
-def save_base64_image(b64_string: str, output_dir: Path, prefix: str = "input") -> str:
-    """Сохранить base64 как файл, вернуть путь"""
-    image_bytes = decode_base64_image(b64_string)
-    
-    # Определяем расширение по сигнатуре
-    if image_bytes[:8] == b"\x89PNG\r\n\x1a\n":
-        ext = "png"
-    elif image_bytes[:2] == b"\xff\xd8":
-        ext = "jpg"
-    else:
-        ext = "png"
-    
-    filename = f"{prefix}_{uuid.uuid4().hex[:8]}.{ext}"
-    filepath = output_dir / filename
-    filepath.write_bytes(image_bytes)
-    
-    return str(filepath)
-
-
-def load_image_as_base64(filepath: Path) -> str:
-    """Прочитать файл и вернуть base64"""
-    return encode_image_to_base64(filepath.read_bytes())
-
-
-# ============================================================
-# ComfyUI клиент
-# ============================================================
-
+# 1. Оставляем только базовый клиент для связи с ComfyUI
 class ComfyUIClient:
-    """Асинхронный клиент для ComfyUI API"""
-    
     def __init__(self):
         self.client_id = str(uuid.uuid4())
-    
-    async def _post(self, endpoint: str, data: Any = None, json_data: Dict = None) -> Dict:
-        """POST запрос к ComfyUI"""
-        
-        
-        url = f"{COMFY_URL}{endpoint}"
-        
+
+    async def execute_workflow(self, workflow: Dict) -> Dict:
+        # Отправляем промпт
         async with aiohttp.ClientSession() as session:
-            if json_data:
-                async with session.post(url, json=json_data) as resp:
-                    return await resp.json()
-            async with session.post(url, data=data) as resp:
-                return await resp.json()
-    
-    async def _get(self, endpoint: str) -> Any:
-        """GET запрос к ComfyUI"""
-        
-        
-        url = f"{COMFY_URL}{endpoint}"
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
-                if resp.content_type == "application/json":
-                    return await resp.json()
-                return await resp.read()
-    
-# 1. В queue_prompt добавь проверку, чтобы не было KeyError
-    async def queue_prompt(self, workflow: Dict) -> str:
-        prompt_data = {
-            "prompt": workflow,
-            "client_id": self.client_id
-        }
-        url = f"{COMFY_URL}/prompt"
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=prompt_data) as resp:
+            payload = {"prompt": workflow, "client_id": self.client_id}
+            async with session.post(f"{COMFY_URL}/prompt", json=payload) as resp:
                 result = await resp.json()
                 if "prompt_id" not in result:
-                    # Если ComfyUI ругается, мы увидим ЧТО именно не так
                     raise RuntimeError(f"ComfyUI Error: {result}")
-                return result["prompt_id"]
+                prompt_id = result["prompt_id"]
 
-    
-    async def wait_for_completion(self, prompt_id: str, timeout: int = 300) -> Dict:
-        """Ждать завершения выполнения"""
-        import aiohttp
-        
-        for _ in range(timeout):
-            await asyncio.sleep(1)
-            
-            async with aiohttp.ClientSession() as session:
+            # Ждем завершения (опрашиваем историю)
+            while True:
                 async with session.get(f"{COMFY_URL}/history/{prompt_id}") as resp:
                     history = await resp.json()
-                    
                     if prompt_id in history:
                         return history[prompt_id]
-        
-        raise TimeoutError(f"Workflow timeout after {timeout}s")
-    
-    async def execute_workflow(self, workflow: Dict) -> Dict:
-        """Выполнить workflow и дождаться результата"""
-        prompt_id = await self.queue_prompt(workflow)
-        return await self.wait_for_completion(prompt_id)
+                await asyncio.sleep(1)
 
-
-# ============================================================
-# Подготовка workflow
-# ============================================================
-
-
-# 2. В prepare_workflow УДАЛИ или закомментируй блок замены путей для моделей
-def prepare_workflow(workflow: Dict, run_dir: Path) -> Dict:
-    prepared = {}
-    for node_id, node in workflow.items():
-        node_class = node.get("class_type", "")
-        inputs = node.get("inputs", {}).copy()
-        
-        # Оставляем только обработку картинок (LoadImage)
-        if node_class == "LoadImage" and "image" in inputs:
-            image_value = inputs["image"]
-            if isinstance(image_value, str) and len(image_value) > 50:
-                saved_path = save_base64_image(image_value, run_dir / "input", f"node_{node_id}")
-                inputs["image"] = saved_path
-        
-        
-        prepared[node_id] = {
-            "class_type": node_class,
-            "inputs": inputs
-        }
-    return prepared
-
-
-
-def extract_images_from_result(result: Dict) -> List[str]:
+# 2. Ультра-простой экстрактор картинок (берет готовый Base64 из ноды)
+def extract_images(result: Dict) -> List[str]:
     images = []
-    # Сначала пробуем по официальному пути из истории
     outputs = result.get("outputs", {})
     for node_id, node_data in outputs.items():
+        # Нода SaveImage64 кладет готовые строки прямо сюда
         if "images" in node_data:
-            for img in node_data["images"]:
-                # Пробуем найти файл
-                base_path = Path(COMFYUI_PATH) / "output"
-                filepath = base_path / img["filename"]
-                if filepath.exists():
-                    images.append(load_image_as_base64(filepath))
-
-    # ЗАПАСНОЙ ВАРИАНТ: Если из истории ничего не выцепили, берем последние файлы из output
-    if not images:
-        output_path = Path(COMFYUI_PATH) / "output"
-        # Берем файлы созданные в последние 2 минуты
-        recent_files = sorted(output_path.glob("*.png"), key=os.path.getmtime, reverse=True)
-        if recent_files:
-            images.append(load_image_as_base64(recent_files[0]))
-            print(f"[OUTPUT] Found file via fallback: {recent_files[0].name}")
-
+            for item in node_data["images"]:
+                # Если это строка (Base64), просто берем её
+                if isinstance(item, str):
+                    images.append(item)
+                # Если это словарь (зависит от версии ноды), ищем ключ с данными
+                elif isinstance(item, dict) and "base64" in item:
+                    images.append(item["base64"])
     return images
 
-
-# ============================================================
-# ComfyUI сервер
-# ============================================================
-
-_comfy_process: Optional[subprocess.Popen] = None
-
-
-async def start_comfyui_server() -> bool:
-    """Запустить ComfyUI сервер в фоне"""
-    global _comfy_process
-    
-    
-    # Проверяем, не запущен ли уже
+async def handler(event: Dict) -> Dict:
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(f"{COMFY_URL}/system_stats", timeout=aiohttp.ClientTimeout(total=2)) as resp:
-                if resp.status == 200:
-                    print("[COMFY] Server already running")
-                    return True
-    except:
-        pass
-    
-    # Запускаем
-    print("[COMFY] Starting ComfyUI server...")
-    
-    comfy_main = os.path.join(COMFYUI_PATH, "main.py")
-    
-    env = os.environ.copy()
-    env["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments=True"
-    
-    _comfy_process = subprocess.Popen(
-        [
-            sys.executable,
-            comfy_main,
-            "--listen", COMFY_HOST,
-            "--port", str(COMFY_PORT),
-            "--enable-cors",
-            "--disable-auto-launch",
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        env=env
-    )
-    
-    # Ждём запуска (до 60 секунд)
-    for i in range(60):
-        await asyncio.sleep(1)
-        
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(f"{COMFY_URL}/system_stats", timeout=aiohttp.ClientTimeout(total=2)) as resp:
-                    if resp.status == 200:
-                        print(f"[COMFY] Server ready after {i+1}s")
-                        return True
-        except:
-            continue
-    
-    raise RuntimeError("ComfyUI failed to start")
-
-
-async def stop_comfyui_server():
-    """Остановить ComfyUI сервер"""
-    global _comfy_process
-    
-    if _comfy_process:
-        _comfy_process.terminate()
-        _comfy_process.wait(timeout=10)
-        _comfy_process = None
-
-
-# ============================================================
-# Главный обработчик
-# ============================================================
-
-async def handler(event) -> Dict[str, Any]:
-    """
-    RunPod serverless handler
-    
-    Input:
-        {
-            "workflow": { ... }   // Workflow JSON от Tavern
-        }
-    
-    Output:
-        {
-            "images": ["base64...", ...],
-            "success": true
-        }
-    """
-    run_id = None
-    
-    try:
-        body = event.get("input", {})
-        workflow = body.get("workflow")
-        
+        # Берем флоу из запроса
+        workflow = event["input"].get("workflow") or event["input"].get("prompt")
         if not workflow:
             return {"error": "No workflow provided", "success": False}
-        
-        print(f"[HANDLER] Workflow received: {len(workflow)} nodes")
-        
-        # Создаём временную директорию для этого запуска
-        run_id = uuid.uuid4().hex[:8]
-        run_dir = TEMP_DIR / run_id
-        run_dir.mkdir(parents=True, exist_ok=True)
-        (run_dir / "input").mkdir(exist_ok=True)
-        (run_dir / "output").mkdir(exist_ok=True)
-        
-        # Убеждаемся что ComfyUI запущен
-        await start_comfyui_server()
-        
-        # Подготавливаем workflow
-        prepared = prepare_workflow(workflow, run_dir)
-        
-        # Выполняем
+
         client = ComfyUIClient()
-        print("[HANDLER] Queuing prompt...")
-        result = await client.execute_workflow(prepared)
         
-        # Извлекаем результат
-        images = extract_images_from_result(result)
+        # Запускаем генерацию
+        result = await client.execute_workflow(workflow)
         
-        print(f"[HANDLER] Done: {len(images)} images generated")
+        # Достаем картинки (они уже в Base64)
+        images = extract_images(result)
         
         return {
             "images": images,
             "success": True,
             "count": len(images)
         }
-        
     except Exception as e:
-        import traceback
-        print(f"[ERROR] {e}")
-        traceback.print_exc()
         return {"error": str(e), "success": False}
-        
-    finally:
-        # Очищаем временные файлы
-        if run_id:
-            run_dir = TEMP_DIR / run_id
-            shutil.rmtree(run_dir, ignore_errors=True)
 
-
-# ============================================================
-# RunPod entry point
-# ============================================================
-
-def main():
-    import runpod
-    
-    # Создаём temp директорию
-    TEMP_DIR.mkdir(parents=True, exist_ok=True)
-    
-    runpod.serverless.start({
-        "handler": handler,
-        "return_ray": False,
-    })
-
-
+# Запуск
 if __name__ == "__main__":
-    main()
+    runpod.serverless.start({"handler": handler})
