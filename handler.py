@@ -107,16 +107,21 @@ class ComfyUIClient:
                     return await resp.json()
                 return await resp.read()
     
+# 1. В queue_prompt добавь проверку, чтобы не было KeyError
     async def queue_prompt(self, workflow: Dict) -> str:
-        """Поставить workflow в очередь, вернуть prompt_id"""
         prompt_data = {
             "prompt": workflow,
-            "client_id": self.client_id,
-            "extra_data": {}
+            "client_id": self.client_id
         }
-        
-        result = await self._post("/prompt", json_data=prompt_data)
-        return result["prompt_id"]
+        url = f"{COMFY_URL}/prompt"
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=prompt_data) as resp:
+                result = await resp.json()
+                if "prompt_id" not in result:
+                    # Если ComfyUI ругается, мы увидим ЧТО именно не так
+                    raise RuntimeError(f"ComfyUI Error: {result}")
+                return result["prompt_id"]
+
     
     async def wait_for_completion(self, prompt_id: str, timeout: int = 300) -> Dict:
         """Ждать завершения выполнения"""
@@ -144,47 +149,30 @@ class ComfyUIClient:
 # Подготовка workflow
 # ============================================================
 
+
+# 2. В prepare_workflow УДАЛИ или закомментируй блок замены путей для моделей
 def prepare_workflow(workflow: Dict, run_dir: Path) -> Dict:
-    """
-    Подготовить workflow к выполнению:
-    - Конвертировать base64 изображения в файлы
-    - Подменить относительные пути к моделям на абсолютные
-    """
     prepared = {}
-    
     for node_id, node in workflow.items():
         node_class = node.get("class_type", "")
         inputs = node.get("inputs", {}).copy()
         
-        # ---- LoadImage: конвертировать base64 в файл ----
+        # Оставляем только обработку картинок (LoadImage)
         if node_class == "LoadImage" and "image" in inputs:
             image_value = inputs["image"]
-            
             if isinstance(image_value, str) and len(image_value) > 50:
-                # Это base64, сохраняем
                 saved_path = save_base64_image(image_value, run_dir / "input", f"node_{node_id}")
                 inputs["image"] = saved_path
-                print(f"[PREP] LoadImage {node_id} -> {Path(saved_path).name}")
         
-        # ---- Загрузчики моделей: подменить пути ----
-        elif node_class in ("CheckpointLoaderSimple", "VAELoader", "CLIPLoader", 
-                           "UNETLoader", "DualCLIPLoader"):
-            
-            for key in ["ckpt_name", "vae_name", "clip_name", "unet_name"]:
-                if key in inputs:
-                    filename = inputs[key]
-                    # Если относительный путь — добавляем /runpod-volume/models/
-                    if filename and not filename.startswith("/"):
-                        full_path = os.path.join(MODELS_BASE, "models", filename)
-                        inputs[key] = full_path
-                        print(f"[PREP] {node_class}.{key} -> {filename}")
+        # БЛОК С CheckpointLoader / VAELoader / CLIPLoader НУЖНО УДАЛИТЬ. 
+        # Пусть имена остаются просто именами (напр. "flux1.safetensors")
         
         prepared[node_id] = {
             "class_type": node_class,
             "inputs": inputs
         }
-    
     return prepared
+
 
 
 def extract_images_from_result(result: Dict) -> List[str]:
