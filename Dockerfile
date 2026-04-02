@@ -48,6 +48,7 @@ RUN mkdir -p /comfyui/custom_nodes && cd /comfyui/custom_nodes \
 # Код приложения
 WORKDIR /app
 COPY handler.py config.yaml ./
+RUN mkdir -p /comfyui/output
 
 ENV COMFYUI_PATH=/comfyui
 RUN echo "runpod:\n    base_path: /runpod-volume/models\n    checkpoints: checkpoints/\n    clip: clip/\n    vae: vae/\n    unet: unet/\n    loras: loras/" > /comfyui/extra_model_paths.yaml
