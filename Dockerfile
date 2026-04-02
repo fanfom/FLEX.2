@@ -1,4 +1,4 @@
-FROM nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
@@ -23,24 +23,30 @@ RUN ln -sf /usr/bin/python3.10 /usr/bin/python
 RUN /usr/bin/python3.10 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
+# PyTorch
 RUN pip install --no-cache-dir \
     torch torchvision \
     --index-url https://download.pytorch.org/whl/cu124
 
+# Зависимости
 RUN pip install --no-cache-dir \
     pillow==10.3.0 \
     aiohttp==3.9.5
 
+# ComfyUI
 RUN git clone --depth 1 --branch master https://github.com/comfyanonymous/ComfyUI.git /comfyui \
     && cd /comfyui \
     && pip install --no-cache-dir -r requirements.txt \
     && pip install --no-cache-dir .
 
+# RunPod SDK
 RUN pip install --no-cache-dir runpod==1.1.0
 
+# Код приложения
 WORKDIR /app
 COPY handler.py config.yaml ./
 
+# Переменные — модели на /runpod-volume
 ENV COMFYUI_PATH=/comfyui
 ENV MODELS_BASE=/runpod-volume
 ENV PYTORCH_CUDA_ALLOC_CONF=expandable_segments=True
