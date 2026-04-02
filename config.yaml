@@ -1,11 +1,8 @@
+# Пути к моделям на сетевом хранилище
 models:
-  base_path: "/runpod-volume"
-  checkpoint: "models/checkpoints/snofsSexNudesAndOtherFunStuff_distilledV12Fp8.safetensors"
-  clip: "models/clip/qwen_3_8b_fp8mixed.safetensors"
-  vae: "models/vae/flux2-vae.safetensors"
+  base_path: "/runpod-volume/models"
 
-inference:
-  default_steps: 20
-  default_cfg: 3.5
-  default_width: 1024
-  default_height: 1024
+# ComfyUI
+comfy:
+  host: "127.0.0.1"
+  port: 8188
