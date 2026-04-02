@@ -63,13 +63,27 @@ class ComfyUIClient:
 def extract_images(result: Dict) -> List[str]:
     images = []
     outputs = result.get("outputs", {})
+    
+    # Ищем нашу ноду 31 (или любой другой ID, где SaveImage64)
     for node_id, node_data in outputs.items():
-        if "images" in node_data:
-            for item in node_data["images"]:
-                # SaveImage64 отдает сразу готовую строку
-                if isinstance(item, str): images.append(item)
-                elif isinstance(item, dict) and "base64" in item: images.append(item["base64"])
+        # Нода возвращает (results, base64_strings)
+        # В API это выглядит как массив, где base64_strings — это второй объект
+        
+        # 1. Проверяем, есть ли там список строк (это наш base64)
+        if isinstance(node_data, list):
+            for item in node_data:
+                # Если элемент — список строк, и первая строка похожа на base64
+                if isinstance(item, list) and len(item) > 0 and isinstance(item[0], str):
+                    if len(item[0]) > 100: # Защита от коротких строк-имен
+                        images.extend(item)
+                        print(f"[HANDLER] Extracted {len(item)} images from Node {node_id}")
+        
+        # 2. На всякий случай проверяем ключ 'base64', если ComfyUI решит его так назвать
+        elif isinstance(node_data, dict) and "base64" in node_data:
+            images.extend(node_data["base64"])
+
     return images
+
 
 # Главный хендлер RunPod
 async def handler(event: Dict) -> Dict:
