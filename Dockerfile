@@ -34,6 +34,7 @@ RUN git clone --depth 1 --branch master https://github.com/comfyanonymous/ComfyU
 WORKDIR /comfyui/custom_nodes
 RUN git clone https://github.com/remingtonspaz/ComfyUI-ReferenceChain.git
 RUN git clone https://github.com/kijai/ComfyUI-KJNodes.git
+RUN git clone https://github.com/ltdrdata/ComfyUI-Impact-Pack.git 
 
 # Конфиг путей для моделей
 RUN echo "runpod:\n    base_path: /runpod-volume/models\n    checkpoints: checkpoints/\n    clip: clip/\n    vae: vae/\n    unet: unet/\n    loras: loras/" > /comfyui/extra_model_paths.yaml
