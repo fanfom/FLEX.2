@@ -1,45 +1,35 @@
-FROM nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04
+# Берём за основу официальный, уже оптимизированный образ от RunPod.
+# Он уже содержит всё для совместимости с SillyTavern и быстрого старта.
+FROM runpod/worker-comfyui:latest
 
-ENV DEBIAN_FRONTEND=noninteractive
-ENV PYTHONUNBUFFERED=1
-
-# Устанавливаем всё необходимое за один RUN
-RUN apt-get update && apt-get install -y \
-    software-properties-common \
-    git curl \
-    libgl1 libglib2.0-0 libsm6 libxext6 libxrender-dev \
-    && add-apt-repository -y ppa:deadsnakes/ppa \
-    && apt-get update \
-    && apt-get install -y python3.10 python3.10-venv python3.10-dev python3-pip \
+# Устанавливаем недостающие системные зависимости для работы кастомных нод.
+# Это чисто, потому что образ не раздувается готовыми моделями.
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
+USER comfyui
 
-# Python 3.10 по умолчанию
-RUN ln -sf /usr/bin/python3.10 /usr/bin/python
-
-# Виртуальное окружение
-RUN python3.10 -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
-
-# PyTorch (cu124)
-RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cu124
-
-# Базовые зависимости
-RUN pip install --no-cache-dir pillow==10.3.0 aiohttp==3.9.5 runpod==1.1.0
-
-# ComfyUI
-RUN git clone --depth 1 --branch master https://github.com/comfyanonymous/ComfyUI.git /comfyui \
-    && cd /comfyui && pip install --no-cache-dir -r requirements.txt
-
-# Кастомные ноды
+# Добавляем КАСТОМНЫЕ НОДЫ, которых нет в официальном образе.
+# ВАЖНО: Не копируем никакие модели, они будут на Network Volume.
 WORKDIR /comfyui/custom_nodes
-RUN git clone https://github.com/remingtonspaz/ComfyUI-ReferenceChain.git
+
+# 1. Нода для загрузки Base64 изображений от SillyTavern.
 RUN git clone https://github.com/kijai/ComfyUI-KJNodes.git
-RUN git clone https://github.com/ltdrdata/ComfyUI-Impact-Pack.git 
 
-# Конфиг путей для моделей
-RUN echo "runpod:\n    base_path: /runpod-volume/models\n    checkpoints: checkpoints/\n    clip: clip/\n    vae: vae/\n    unet: unet/\n    loras: loras/" > /comfyui/extra_model_paths.yaml
+# 2. Нода для img2img.
+RUN git clone https://github.com/remingtonspaz/ComfyUI-ReferenceChain.git
 
-WORKDIR /app
-COPY handler.py config.yaml ./
+# 3. Нода для вывода результата в Base64.
+RUN git clone https://github.com/ramyma/A8R8_ComfyUI_nodes.git
 
-CMD ["python", "handler.py"]
+# Создаём символические ссылки на модели из Network Volume (место хранения моделей в RunPod)
+RUN mkdir -p /comfyui/models/clip /comfyui/models/vae
+RUN ln -s /runpod-volume/models/clip/qwen_3_8b_fp8mixed.safetensors /comfyui/models/clip/ || true
+RUN ln -s /runpod-volume/models/vae/flux2-vae.safetensors /comfyui/models/vae/ || true
+# Для чекпоинтов — добавляем папку checkpoints, если её нет, и создаём ссылку
+RUN mkdir -p /comfyui/models/checkpoints
+RUN ln -s /runpod-volume/models/checkpoints/snofsSexNudesAndOtherFunStuff_distilledV12Fp8.safetensors /comfyui/models/checkpoints/ || true
+
+# Оставляем CMD из родительского образа — он уже умеет правильно запускать ComfyUI и обрабатывать запросы.
