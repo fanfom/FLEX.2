@@ -4,14 +4,11 @@ FROM runpod/worker-comfyui:5.8.5-base-cuda12.8.1
 # Добавляем кастомные ноды, необходимые для img2img и работы с base64
 WORKDIR /comfyui/custom_nodes
 
-# 1. Нода для загрузки Base64 изображений от SillyTavern (img2img)
-RUN git clone https://github.com/kijai/ComfyUI-KJNodes.git
 
-# 2. Нода для Reference Chain (img2img с контролем)
+# 1. Нода для Reference Chain (img2img с контролем)
 RUN git clone https://github.com/remingtonspaz/ComfyUI-ReferenceChain.git
-
-# 3. Нода для выдачи результата в Base64 обратно в SillyTavern
-RUN git clone https://github.com/ramyma/A8R8_ComfyUI_nodes.git
+# 2. Нода для выдачи результата в Base64 обратно в SillyTavern
+RUN git clone https://github.com/GrailGreg/images_base64.git
 
 # Создаём символические ссылки на модели из Network Volume (предполагается, что volume примонтирован в /runpod-volume)
 RUN mkdir -p /comfyui/models/checkpoints /comfyui/models/clip /comfyui/models/vae \
